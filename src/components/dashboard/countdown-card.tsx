@@ -3,8 +3,26 @@
 import * as React from "react";
 import { differenceInWeeks, differenceInDays } from "date-fns";
 import { Timer, TrendingDown } from "lucide-react";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { getUser } from "@/lib/storage/user-storage";
+
+function AnimatedNumber({ value, className }: { value: number; className?: string }) {
+  const motionVal = useMotionValue(0);
+  const rounded = useTransform(motionVal, (v) => Math.round(v));
+  const [display, setDisplay] = React.useState(0);
+
+  React.useEffect(() => {
+    const controls = animate(motionVal, value, {
+      duration: 1.2,
+      ease: "easeOut",
+    });
+    const unsub = rounded.on("change", (v) => setDisplay(v));
+    return () => { controls.stop(); unsub(); };
+  }, [value, motionVal, rounded]);
+
+  return <span className={className}>{display.toLocaleString("pt-BR")}</span>;
+}
 
 const TARGET_AGE = 30;
 const FALLBACK_BIRTH = "1997-03-15";
@@ -40,7 +58,7 @@ export function CountdownCard() {
   });
 
   return (
-    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.2_0.06_264)] via-[oklch(0.18_0.08_280)] to-[oklch(0.2_0.1_300)] glow-card">
+    <Card className={`relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.2_0.06_264)] via-[oklch(0.18_0.08_280)] to-[oklch(0.2_0.1_300)] glow-card card-hover ${weeksLeft > 0 && weeksLeft < 10 * 52 ? 'animate-pulse-intense' : ''}`}>
       {/* Background decorative elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-24 -right-24 size-64 rounded-full bg-primary/5 blur-3xl" />
@@ -57,9 +75,10 @@ export function CountdownCard() {
               Semanas ate os {TARGET_AGE}
             </p>
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-5xl font-black tracking-tighter text-foreground">
-                {weeksLeft > 0 ? weeksLeft : 0}
-              </span>
+              <AnimatedNumber
+                value={weeksLeft > 0 ? weeksLeft : 0}
+                className="font-mono text-5xl font-black tracking-tighter text-foreground"
+              />
               <span className="text-lg font-medium text-muted-foreground">
                 semanas
               </span>

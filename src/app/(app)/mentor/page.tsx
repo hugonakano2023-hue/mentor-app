@@ -4,7 +4,10 @@ import * as React from 'react';
 import { Brain } from 'lucide-react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { AnimatedPage } from '@/components/ui/animated-page';
 import { ModeSelector } from '@/components/mentor/mode-selector';
 import { ChatMessage } from '@/components/mentor/chat-message';
 import { ChatInput } from '@/components/mentor/chat-input';
@@ -21,6 +24,7 @@ import { getActiveHabits, getLast7Days, getStreak } from '@/lib/storage/habit-st
 import { getGoals, calculateGoalProgress, getMilestones } from '@/lib/storage/goal-storage';
 import { getXPState, getTodayXP } from '@/lib/storage/xp-storage';
 import { getTasks } from '@/lib/storage/task-storage';
+import { detectPatterns, type Pattern } from '@/lib/pattern-detector';
 import type { MentorMode } from '@/types';
 
 function buildContext(): string {
@@ -139,23 +143,58 @@ function buildContext(): string {
   return parts.join('\n');
 }
 
+function buildPatterns(): Pattern[] {
+  try {
+    return detectPatterns();
+  } catch {
+    return [];
+  }
+}
+
+const modeConfig = {
+  planner: {
+    gradient: 'from-primary/5 to-transparent',
+    border: 'border-primary/20',
+    badge: 'Planejador',
+    badgeEmoji: '\u2600\uFE0F',
+    badgeClass: 'bg-primary/15 text-primary border-primary/30',
+  },
+  chat: {
+    gradient: 'from-emerald-500/5 to-transparent',
+    border: 'border-emerald-500/20',
+    badge: 'Chat Livre',
+    badgeEmoji: '\uD83D\uDCAC',
+    badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  },
+  review: {
+    gradient: 'from-accent/5 to-transparent',
+    border: 'border-accent/20',
+    badge: 'Review',
+    badgeEmoji: '\uD83C\uDF19',
+    badgeClass: 'bg-accent/15 text-accent border-accent/30',
+  },
+} as const;
+
 export default function MentorPage() {
   const [mode, setMode] = React.useState<MentorMode>('planner');
   const [inputValue, setInputValue] = React.useState('');
   const [storedMessages, setStoredMessages] = React.useState<StoredChatMessage[]>([]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const autoGreetedRef = React.useRef<Set<string>>(new Set());
+  const currentModeConfig = modeConfig[mode];
 
   // Build context on each render (lightweight — reads from localStorage)
   const contextRef = React.useRef('');
+  const patternsRef = React.useRef<Pattern[]>([]);
   React.useEffect(() => {
     contextRef.current = buildContext();
+    patternsRef.current = buildPatterns();
   }, [mode]);
 
   const transportRef = React.useRef(
     new DefaultChatTransport({
       api: '/api/chat',
-      body: { mode, context: contextRef.current },
+      body: { mode, context: contextRef.current, patterns: patternsRef.current },
     })
   );
 
@@ -163,7 +202,7 @@ export default function MentorPage() {
   React.useEffect(() => {
     transportRef.current = new DefaultChatTransport({
       api: '/api/chat',
-      body: { mode, context: contextRef.current },
+      body: { mode, context: contextRef.current, patterns: patternsRef.current },
     });
   }, [mode]);
 
@@ -264,11 +303,12 @@ export default function MentorPage() {
     const text = inputValue.trim();
     if (!text || isStreaming) return;
     setInputValue('');
-    // Update context before sending
+    // Update context and patterns before sending
     contextRef.current = buildContext();
+    patternsRef.current = buildPatterns();
     transportRef.current = new DefaultChatTransport({
       api: '/api/chat',
-      body: { mode, context: contextRef.current },
+      body: { mode, context: contextRef.current, patterns: patternsRef.current },
     });
     sendMessage({ text });
   }
@@ -288,6 +328,7 @@ export default function MentorPage() {
   const hasLiveMessages = messages.length > 0;
 
   return (
+    <AnimatedPage>
     <div className="flex flex-col h-[calc(100vh-7rem)] md:h-[calc(100vh-5rem)]">
       {/* Header */}
       <div className="space-y-4 pb-4">
@@ -295,11 +336,16 @@ export default function MentorPage() {
           <div className="flex size-10 items-center justify-center rounded-xl bg-mentor/15">
             <Brain className="size-5 text-mentor" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">Mentor IA</h1>
-            <p className="text-sm text-muted-foreground">
-              Seu conselheiro pessoal para decisões e planejamento
-            </p>
+          <div className="flex items-center gap-2">
+            <div>
+              <h1 className="text-xl font-bold tracking-tight">Mentor IA</h1>
+              <p className="text-sm text-muted-foreground">
+                Seu conselheiro pessoal para decisoes e planejamento
+              </p>
+            </div>
+            <Badge variant="outline" className={`text-[10px] h-5 px-2 ${currentModeConfig.badgeClass}`}>
+              {currentModeConfig.badgeEmoji} {currentModeConfig.badge}
+            </Badge>
           </div>
         </div>
 
@@ -309,60 +355,70 @@ export default function MentorPage() {
 
       <Separator />
 
-      {/* Chat Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4 space-y-4">
-        {/* Stored history (only show when no live messages) */}
-        {!hasLiveMessages &&
-          storedMessages.map((msg) => (
-            <ChatMessage
-              key={msg.id}
-              role={msg.role}
-              content={msg.content}
-            />
-          ))}
+      {/* Chat Messages — mode-colored background */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={mode}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2 }}
+          className={`flex-1 overflow-y-auto py-4 space-y-4 rounded-lg bg-gradient-to-b ${currentModeConfig.gradient}`}
+          ref={scrollRef}
+        >
+          {/* Stored history (only show when no live messages) */}
+          {!hasLiveMessages &&
+            storedMessages.map((msg) => (
+              <ChatMessage
+                key={msg.id}
+                role={msg.role}
+                content={msg.content}
+              />
+            ))}
 
-        {/* Live messages from useChat */}
-        {messages.map((message) => {
-          const text = getMessageText(message);
-          if (!text) return null;
-          return (
-            <ChatMessage
-              key={message.id}
-              role={message.role as 'user' | 'assistant'}
-              content={text}
-              isStreaming={
-                isStreaming &&
-                message.role === 'assistant' &&
-                message.id === messages[messages.length - 1]?.id
-              }
-            />
-          );
-        })}
+          {/* Live messages from useChat */}
+          {messages.map((message) => {
+            const text = getMessageText(message);
+            if (!text) return null;
+            return (
+              <ChatMessage
+                key={message.id}
+                role={message.role as 'user' | 'assistant'}
+                content={text}
+                isStreaming={
+                  isStreaming &&
+                  message.role === 'assistant' &&
+                  message.id === messages[messages.length - 1]?.id
+                }
+              />
+            );
+          })}
 
-        {/* Streaming indicator when waiting for first token */}
-        {isStreaming &&
-          messages.length > 0 &&
-          messages[messages.length - 1].role === 'user' && (
-            <ChatMessage role="assistant" content="" isStreaming />
-          )}
+          {/* Streaming indicator when waiting for first token */}
+          {isStreaming &&
+            messages.length > 0 &&
+            messages[messages.length - 1].role === 'user' && (
+              <ChatMessage role="assistant" content="" isStreaming />
+            )}
 
-        {/* Empty state */}
-        {!hasLiveMessages && storedMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="flex size-16 items-center justify-center rounded-2xl bg-mentor/10 mb-4">
-              <Brain className="size-8 text-mentor/60" />
+          {/* Empty state */}
+          {!hasLiveMessages && storedMessages.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="flex size-16 items-center justify-center rounded-2xl bg-mentor/10 mb-4">
+                <Brain className="size-8 text-mentor/60" />
+              </div>
+              <h3 className="font-semibold">Nenhuma mensagem ainda</h3>
+              <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+                {mode === 'chat'
+                  ? 'Converse com seu Mentor sobre qualquer assunto.'
+                  : mode === 'planner'
+                    ? 'O planejador vai montar seu plano do dia automaticamente.'
+                    : 'O review vai analisar seu dia automaticamente.'}
+              </p>
             </div>
-            <h3 className="font-semibold">Nenhuma mensagem ainda</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-              {mode === 'chat'
-                ? 'Converse com seu Mentor sobre qualquer assunto.'
-                : mode === 'planner'
-                  ? 'O planejador vai montar seu plano do dia automaticamente.'
-                  : 'O review vai analisar seu dia automaticamente.'}
-            </p>
-          </div>
-        )}
-      </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
 
       {/* Input Area */}
       <div className="pt-3 pb-1">
@@ -378,5 +434,6 @@ export default function MentorPage() {
         </p>
       </div>
     </div>
+    </AnimatedPage>
   );
 }

@@ -101,4 +101,6 @@ export const STORAGE_KEYS = {
   XP_STATE: 'mentor_xp_state',
   ONBOARDING_DONE: 'mentor_onboarding_done',
   CATEGORIES: 'mentor_categories',
+  ACHIEVEMENTS: 'mentor_achievements',
+  DAILY_QUESTS: 'mentor_daily_quests',
 } as const;

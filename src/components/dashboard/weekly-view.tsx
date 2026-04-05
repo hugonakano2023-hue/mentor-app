@@ -136,7 +136,7 @@ export function WeeklyView() {
   }
 
   return (
-    <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card hover:scale-[1.01] transition-transform duration-300">
+    <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card card-hover">
       <CardHeader>
         <div className="flex items-center gap-2">
           <BarChart3 className="size-4 text-primary" />

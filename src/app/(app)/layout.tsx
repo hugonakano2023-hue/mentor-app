@@ -40,7 +40,10 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { AuthGuard } from "@/components/auth/auth-guard";
+import { GamificationProvider } from "@/components/gamification/gamification-provider";
+import { QuickExpenseFAB } from "@/components/finance/quick-expense-fab";
 import { getSession, logout } from "@/lib/auth";
+import { getUnlockedCount } from "@/lib/storage/achievement-storage";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -58,6 +61,14 @@ const navItems = [
 
 import { getXPState, getLevel } from "@/lib/storage/xp-storage";
 
+function getLevelTierIcon(level: number): string {
+  if (level < 5) return '\u{1F331}';
+  if (level < 10) return '\u{1F33F}';
+  if (level < 20) return '\u{1F333}';
+  if (level < 30) return '\u{1F3D4}\u{FE0F}';
+  return '\u2B50';
+}
+
 // -- User stats (reads session + XP from localStorage) --
 function useUserStats() {
   const session = getSession();
@@ -68,12 +79,15 @@ function useUserStats() {
     xp: 0,
     xpToNext: 1000,
     streak: 0,
+    achievementsUnlocked: 0,
+    achievementsTotal: 0,
   });
 
   React.useEffect(() => {
     const xpState = getXPState();
     const levelInfo = getLevel();
     const currentSession = getSession();
+    const achievements = getUnlockedCount();
     setStats({
       name: currentSession?.name ?? "Usuario",
       initials: (currentSession?.name ?? "U").charAt(0).toUpperCase(),
@@ -81,6 +95,8 @@ function useUserStats() {
       xp: levelInfo.totalXP,
       xpToNext: 1000,
       streak: xpState.currentStreak,
+      achievementsUnlocked: achievements.unlocked,
+      achievementsTotal: achievements.total,
     });
   }, []);
 
@@ -195,11 +211,16 @@ function UserSection() {
         </Avatar>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold truncate">{stats.name}</p>
-          <div className="flex items-center gap-1">
-            <Sparkles className="size-3 text-level" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs">{getLevelTierIcon(stats.level)}</span>
             <span className="text-xs text-muted-foreground">
               Level {stats.level}
             </span>
+            {stats.achievementsUnlocked > 0 && (
+              <Badge variant="outline" className="h-4 px-1.5 text-[10px] border-amber-500/30 text-amber-400">
+                {stats.achievementsUnlocked}/{stats.achievementsTotal}
+              </Badge>
+            )}
           </div>
         </div>
         <Tooltip>
@@ -290,6 +311,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthGuard>
+    <GamificationProvider>
     <div className="flex h-full min-h-screen">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex md:w-64 md:shrink-0 md:flex-col border-r border-border bg-sidebar">
@@ -335,6 +357,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </SheetContent>
       </Sheet>
     </div>
+    <QuickExpenseFAB />
+    </GamificationProvider>
     </AuthGuard>
   );
 }

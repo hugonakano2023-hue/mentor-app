@@ -70,15 +70,40 @@ Você está no modo de review noturno. Sua função é:
   return basePrompt + contextBlock + (modeInstructions[mode] ?? modeInstructions.chat);
 }
 
+type PatternPayload = {
+  type: 'positive' | 'negative' | 'neutral';
+  category: string;
+  message: string;
+  confidence: number;
+};
+
 export async function POST(req: Request) {
   const {
     messages,
     mode,
     context,
-  }: { messages: UIMessage[]; mode: string; context?: string } =
-    await req.json();
+    patterns,
+  }: {
+    messages: UIMessage[];
+    mode: string;
+    context?: string;
+    patterns?: PatternPayload[];
+  } = await req.json();
 
-  const systemPrompt = buildMentorPrompt(mode ?? 'chat', context);
+  // Build patterns context block
+  let patternsBlock = '';
+  if (patterns && patterns.length > 0) {
+    const patternLines = patterns
+      .filter((p) => p.confidence >= 0.3)
+      .map((p) => `- [${p.type === 'positive' ? '+' : p.type === 'negative' ? '!' : '~'}] ${p.message} (confiança: ${Math.round(p.confidence * 100)}%)`)
+      .join('\n');
+    if (patternLines) {
+      patternsBlock = `\n\nPadrões comportamentais detectados (últimos 30 dias):\n${patternLines}\n\nUse esses padrões para dar feedback personalizado e baseado em dados reais. Referencie-os naturalmente quando relevante.`;
+    }
+  }
+
+  const fullContext = (context ?? '') + patternsBlock;
+  const systemPrompt = buildMentorPrompt(mode ?? 'chat', fullContext || undefined);
 
   const result = streamText({
     model: anthropic('claude-sonnet-4-20250514'),

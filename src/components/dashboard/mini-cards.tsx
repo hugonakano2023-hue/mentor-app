@@ -102,7 +102,7 @@ function MiniCard({ data }: { data: MiniCardData }) {
   const Icon = data.icon;
 
   return (
-    <Card className="border-0 bg-card/80 backdrop-blur-sm hover:scale-[1.03] transition-transform duration-300 glow-card">
+    <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card card-hover">
       <CardContent className="flex items-start gap-3">
         <div
           className={cn(

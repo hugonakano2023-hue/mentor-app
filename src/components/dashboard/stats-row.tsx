@@ -2,9 +2,27 @@
 
 import * as React from "react";
 import { Flame, Zap, CheckCircle2, Sparkles } from "lucide-react";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { getXPState, getLevel } from "@/lib/storage/xp-storage";
 import { getCompletionForDate } from "@/lib/storage/day-plan-storage";
+
+function AnimatedCounter({ value, className, suffix }: { value: number; className?: string; suffix?: string }) {
+  const motionVal = useMotionValue(0);
+  const rounded = useTransform(motionVal, (v) => Math.round(v));
+  const [display, setDisplay] = React.useState(0);
+
+  React.useEffect(() => {
+    const controls = animate(motionVal, value, {
+      duration: 1,
+      ease: "easeOut",
+    });
+    const unsub = rounded.on("change", (v) => setDisplay(v));
+    return () => { controls.stop(); unsub(); };
+  }, [value, motionVal, rounded]);
+
+  return <span className={className}>{display.toLocaleString("pt-BR")}{suffix ?? ''}</span>;
+}
 
 function useStats() {
   const [stats, setStats] = React.useState({
@@ -41,7 +59,7 @@ function StreakCard() {
   const stats = useStats();
 
   return (
-    <Card className="group relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.22_0.04_55)] to-[oklch(0.18_0.02_55)] hover:scale-[1.02] transition-transform duration-300 glow-streak">
+    <Card className="group relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.22_0.04_55)] to-[oklch(0.18_0.02_55)] glow-streak card-hover">
       <div className="absolute -top-8 -right-8 size-24 rounded-full bg-streak/5 blur-2xl pointer-events-none" />
       <CardContent className="relative">
         <div className="flex items-center justify-between">
@@ -50,14 +68,15 @@ function StreakCard() {
               Streak
             </p>
             <div className="flex items-baseline gap-1.5">
-              <span className="font-mono text-4xl font-black tracking-tighter text-streak">
-                {stats.streak}
-              </span>
+              <AnimatedCounter
+                value={stats.streak}
+                className="font-mono text-4xl font-black tracking-tighter text-streak"
+              />
               <span className="text-sm font-medium text-streak/60">dias</span>
             </div>
           </div>
           <div className="flex size-12 items-center justify-center rounded-xl bg-streak/10">
-            <Flame className="size-6 text-streak" />
+            <Flame className={`size-6 text-streak ${stats.streak > 0 && stats.streak < 3 ? 'animate-pulse-intense' : ''}`} />
           </div>
         </div>
         <p className="text-[10px] text-muted-foreground mt-2">
@@ -75,7 +94,7 @@ function XPCard() {
   const xpPercent = Math.round((currentLevelXP / xpForLevel) * 100);
 
   return (
-    <Card className="group relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.22_0.04_145)] to-[oklch(0.18_0.02_145)] hover:scale-[1.02] transition-transform duration-300 glow-xp">
+    <Card className="group relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.22_0.04_145)] to-[oklch(0.18_0.02_145)] glow-xp card-hover">
       <div className="absolute -top-8 -right-8 size-24 rounded-full bg-xp/5 blur-2xl pointer-events-none" />
       <CardContent className="relative">
         <div className="flex items-center justify-between">
@@ -84,9 +103,10 @@ function XPCard() {
               Experiencia
             </p>
             <div className="flex items-baseline gap-1.5">
-              <span className="font-mono text-4xl font-black tracking-tighter text-xp">
-                {stats.xp.toLocaleString("pt-BR")}
-              </span>
+              <AnimatedCounter
+                value={stats.xp}
+                className="font-mono text-4xl font-black tracking-tighter text-xp"
+              />
               <span className="text-sm font-medium text-xp/60">XP</span>
             </div>
           </div>
@@ -95,7 +115,7 @@ function XPCard() {
           </div>
         </div>
 
-        {/* XP progress bar */}
+        {/* XP progress bar — animated width */}
         <div className="mt-3">
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-1">
@@ -109,9 +129,11 @@ function XPCard() {
             </span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-background/30 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-xp to-[oklch(0.8_0.2_160)] transition-all duration-700"
-              style={{ width: `${xpPercent}%` }}
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-xp to-[oklch(0.8_0.2_160)]"
+              initial={{ width: 0 }}
+              animate={{ width: `${xpPercent}%` }}
+              transition={{ duration: 1, ease: "easeOut", delay: 0.3 }}
             />
           </div>
         </div>
@@ -124,10 +146,10 @@ function DayProgressCard() {
   const stats = useStats();
   const percent = stats.dayProgress;
   const circumference = 2 * Math.PI * 36;
-  const strokeDashoffset = circumference - (percent / 100) * circumference;
+  const targetOffset = circumference - (percent / 100) * circumference;
 
   return (
-    <Card className="group relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.22_0.04_264)] to-[oklch(0.18_0.02_264)] hover:scale-[1.02] transition-transform duration-300 glow-card">
+    <Card className="group relative overflow-hidden border-0 bg-gradient-to-br from-[oklch(0.22_0.04_264)] to-[oklch(0.18_0.02_264)] glow-card card-hover">
       <div className="absolute -top-8 -right-8 size-24 rounded-full bg-primary/5 blur-2xl pointer-events-none" />
       <CardContent className="relative">
         <div className="flex items-center justify-between">
@@ -136,16 +158,18 @@ function DayProgressCard() {
               Hoje
             </p>
             <div className="flex items-baseline gap-1.5">
-              <span className="font-mono text-4xl font-black tracking-tighter text-primary">
-                {percent}%
-              </span>
+              <AnimatedCounter
+                value={percent}
+                className="font-mono text-4xl font-black tracking-tighter text-primary"
+                suffix="%"
+              />
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
               {stats.tasksCompleted}/{stats.tasksTotal} concluidos
             </p>
           </div>
 
-          {/* Circular progress */}
+          {/* Circular progress — animated */}
           <div className="relative flex size-16 items-center justify-center">
             <svg className="size-16 -rotate-90" viewBox="0 0 80 80">
               <circle
@@ -157,7 +181,7 @@ function DayProgressCard() {
                 strokeWidth="5"
                 className="text-background/20"
               />
-              <circle
+              <motion.circle
                 cx="40"
                 cy="40"
                 r="36"
@@ -166,8 +190,9 @@ function DayProgressCard() {
                 strokeWidth="5"
                 strokeLinecap="round"
                 strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                className="transition-all duration-1000"
+                initial={{ strokeDashoffset: circumference }}
+                animate={{ strokeDashoffset: targetOffset }}
+                transition={{ duration: 1.2, ease: "easeOut", delay: 0.3 }}
               />
               <defs>
                 <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">

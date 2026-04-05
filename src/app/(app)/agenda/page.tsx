@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { AnimatedPage } from '@/components/ui/animated-page';
+import { LabeledSkeleton } from '@/components/ui/labeled-skeleton';
 import {
   getDayPlan,
   createDayPlan,
@@ -33,9 +35,32 @@ import {
 import { getRoutineBlocks } from '@/lib/storage/routine-storage';
 import { getBacklog, completeTask, getTasks } from '@/lib/storage/task-storage';
 import { getTodayWorkout } from '@/lib/storage/workout-storage';
-import { addXP, getTodayXP } from '@/lib/storage/xp-storage';
+import { addXP, getTodayXP, getLevel } from '@/lib/storage/xp-storage';
 import { generateDayPlan, type PlanItem } from '@/lib/day-plan-engine';
 import { getSession } from '@/lib/auth';
+import { useGamification } from '@/lib/gamification-context';
+import { checkAndUnlockAchievements } from '@/lib/storage/achievement-storage';
+import { checkQuestCompletion } from '@/lib/daily-quests';
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function useCurrentTime() {
+  const [now, setNow] = React.useState(new Date());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return now;
+}
 
 type FeedbackMessage = {
   text: string;
@@ -73,6 +98,7 @@ function isToday(dateStr: string): boolean {
 }
 
 export default function AgendaPage() {
+  const gamification = useGamification();
   const [selectedDate, setSelectedDate] = React.useState(getDateString(new Date()));
   const [items, setItems] = React.useState<StoredDayPlanItem[]>([]);
   const [hasPlan, setHasPlan] = React.useState(false);
@@ -183,26 +209,50 @@ export default function AgendaPage() {
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
 
+    const levelBefore = getLevel().level;
+
     markItemDone(itemId);
 
     // If it's a task, also complete the task and add XP
+    let xpAwarded = 10;
     if (item.type === 'task' && item.taskId) {
       const storedTask = getTasks().find((t) => t.id === item.taskId);
       if (storedTask && storedTask.status !== 'done') {
         completeTask(item.taskId);
-        addXP(storedTask.xpValue, `Tarefa: ${item.title}`);
-        showFeedback(`Concluido! +${storedTask.xpValue} XP`);
+        xpAwarded = storedTask.xpValue;
+        addXP(xpAwarded, `Tarefa: ${item.title}`);
+        showFeedback(`Concluido! +${xpAwarded} XP`);
       } else {
         addXP(10, `Item concluido: ${item.title}`);
         showFeedback('Concluido! +10 XP');
       }
     } else if (item.type === 'workout') {
+      xpAwarded = 20;
       addXP(20, `Treino: ${item.title}`);
       showFeedback('Treino concluido! +20 XP');
     } else {
       addXP(10, `Rotina: ${item.title}`);
       showFeedback('Concluido! +10 XP');
     }
+
+    // Visual gamification feedback
+    gamification.showXPToast(xpAwarded, item.title);
+
+    // Check for level up
+    const levelAfter = getLevel().level;
+    if (levelAfter > levelBefore) {
+      gamification.showLevelUp(levelBefore, levelAfter);
+      gamification.showConfetti();
+    }
+
+    // Check achievements
+    const newAchievements = checkAndUnlockAchievements();
+    for (const ach of newAchievements) {
+      gamification.showAchievement(ach);
+    }
+
+    // Check quest completion
+    checkQuestCompletion();
 
     loadPlanForDate(selectedDate);
   }
@@ -230,21 +280,45 @@ export default function AgendaPage() {
             <p className="text-sm text-muted-foreground">Carregando...</p>
           </div>
         </div>
-        <div className="space-y-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-16 rounded-xl bg-secondary/30 animate-pulse" />
-          ))}
-        </div>
+        <LabeledSkeleton label="Montando seu plano do dia..." lines={5} />
       </div>
     );
   }
 
+  const now = useCurrentTime();
+  const currentTimeStr = formatTime(now);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const nowLineRef = React.useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to "now" line on mount
+  React.useEffect(() => {
+    if (nowLineRef.current && scrollRef.current) {
+      const container = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (container) {
+        const lineTop = nowLineRef.current.offsetTop;
+        container.scrollTop = Math.max(0, lineTop - 100);
+      }
+    }
+  }, [items]);
+
+  // Determine where "now" falls in the item list
+  const nowInsertIndex = React.useMemo(() => {
+    if (!isToday(selectedDate) || items.length === 0) return -1;
+    for (let i = 0; i < items.length; i++) {
+      const itemStart = timeToMinutes(items[i].startTime);
+      if (nowMinutes < itemStart) return i;
+    }
+    return items.length;
+  }, [items, nowMinutes, selectedDate]);
+
   return (
+    <AnimatedPage>
     <div className="space-y-6">
       {/* Feedback toast */}
       {feedback && (
         <div
-          className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all animate-in slide-in-from-top-2 ${
+          className={`fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all animate-slide-in-top ${
             feedback.type === 'success'
               ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
               : 'bg-red-500/15 text-red-400 border border-red-500/30'
@@ -280,23 +354,24 @@ export default function AgendaPage() {
       {/* Date Navigation */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => navigateDate(-1)}>
+          <Button variant="outline" size="icon" className="btn-press" onClick={() => navigateDate(-1)}>
             <ChevronLeft className="size-4" />
           </Button>
           <Button
             variant={isToday(selectedDate) ? 'default' : 'outline'}
             size="sm"
+            className="btn-press"
             onClick={goToToday}
           >
             Hoje
           </Button>
-          <Button variant="outline" size="icon" onClick={() => navigateDate(1)}>
+          <Button variant="outline" size="icon" className="btn-press" onClick={() => navigateDate(1)}>
             <ChevronRight className="size-4" />
           </Button>
         </div>
 
         {!hasPlan && (
-          <Button onClick={handleGeneratePlan} className="gap-1.5">
+          <Button onClick={handleGeneratePlan} className="gap-1.5 btn-press">
             <Sparkles className="size-4" />
             Gerar Plano
           </Button>
@@ -313,7 +388,7 @@ export default function AgendaPage() {
           <p className="text-sm text-muted-foreground mt-1 max-w-xs">
             Gere um plano automatico baseado na sua rotina e tarefas do backlog.
           </p>
-          <Button className="mt-4 gap-1.5" onClick={handleGeneratePlan}>
+          <Button className="mt-4 gap-1.5 btn-press" onClick={handleGeneratePlan}>
             <Sparkles className="size-4" />
             Gerar Plano do Dia
           </Button>
@@ -322,106 +397,130 @@ export default function AgendaPage() {
 
       {/* Timeline */}
       {hasPlan && items.length > 0 && (
-        <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card">
+        <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card card-hover">
           <CardContent className="p-0">
-            <ScrollArea className="max-h-[600px]">
+            <ScrollArea ref={scrollRef} className="max-h-[600px]">
               <div className="flex flex-col">
                 {items.map((item, idx) => {
                   const statusStyle = STATUS_STYLES[item.status] ?? STATUS_STYLES.pending;
                   const typeStyle = TYPE_STYLES[item.type] ?? TYPE_STYLES.routine;
+                  const itemStart = timeToMinutes(item.startTime);
+                  const isPast = isToday(selectedDate) && nowMinutes > itemStart;
 
                   return (
-                    <div
-                      key={item.id}
-                      className={cn(
-                        'group flex items-center gap-3 px-4 py-3 transition-all duration-200 hover:bg-secondary/30',
-                        item.status === 'done' && 'opacity-60',
-                        item.status === 'skipped' && 'opacity-40',
-                        idx !== items.length - 1 && 'border-b border-border/30'
+                    <React.Fragment key={item.id}>
+                      {/* "Now" line — rendered before the item where now falls */}
+                      {isToday(selectedDate) && nowInsertIndex === idx && (
+                        <div ref={nowLineRef} className="relative my-1 mx-4">
+                          <div className="absolute left-0 right-0 h-0.5 bg-red-500/80" />
+                          <div className="absolute -left-1 -top-1 size-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+                          <span className="absolute left-6 -top-2.5 text-xs font-mono text-red-400">
+                            {currentTimeStr}
+                          </span>
+                        </div>
                       )}
-                    >
-                      {/* Time */}
-                      <div className="w-20 shrink-0 text-right">
-                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                          {item.startTime}
-                        </span>
-                        <br />
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                          {item.endTime}
-                        </span>
-                      </div>
-
-                      {/* Color bar */}
                       <div
-                        className="w-1 self-stretch rounded-full shrink-0"
-                        style={{ backgroundColor: item.color }}
-                      />
-
-                      {/* Icon */}
-                      <span className="text-lg shrink-0">{item.icon}</span>
-
-                      {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <p
-                          className={cn(
-                            'text-sm font-medium truncate',
-                            item.status === 'done' && 'line-through text-muted-foreground',
-                            item.status === 'skipped' && 'line-through text-muted-foreground'
-                          )}
-                        >
-                          {item.title}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <Badge
-                            variant="outline"
-                            className={cn('text-[10px] h-4 px-1.5 border', typeStyle.badge)}
-                          >
-                            {typeStyle.label}
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className={cn('text-[10px] h-4 px-1.5', statusStyle.bg, statusStyle.text)}
-                          >
-                            {statusStyle.label}
-                          </Badge>
+                        className={cn(
+                          'group flex items-center gap-3 px-4 py-3 transition-all duration-200 hover:bg-secondary/30',
+                          item.status === 'done' && 'opacity-60',
+                          item.status === 'skipped' && 'opacity-40',
+                          isPast && item.status === 'pending' && 'opacity-60',
+                          idx !== items.length - 1 && 'border-b border-border/30'
+                        )}
+                      >
+                        {/* Time */}
+                        <div className="w-20 shrink-0 text-right">
+                          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                            {item.startTime}
+                          </span>
+                          <br />
+                          <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
+                            {item.endTime}
+                          </span>
                         </div>
+
+                        {/* Color bar */}
+                        <div
+                          className="w-1 self-stretch rounded-full shrink-0"
+                          style={{ backgroundColor: item.color }}
+                        />
+
+                        {/* Icon */}
+                        <span className="text-lg shrink-0">{item.icon}</span>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={cn(
+                              'text-sm font-medium truncate',
+                              item.status === 'done' && 'line-through text-muted-foreground',
+                              item.status === 'skipped' && 'line-through text-muted-foreground'
+                            )}
+                          >
+                            {item.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <Badge
+                              variant="outline"
+                              className={cn('text-[10px] h-4 px-1.5 border', typeStyle.badge)}
+                            >
+                              {typeStyle.label}
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className={cn('text-[10px] h-4 px-1.5', statusStyle.bg, statusStyle.text)}
+                            >
+                              {statusStyle.label}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        {item.status === 'pending' && (
+                          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => handleMarkDone(item.id)}
+                              title="Concluir"
+                              className="hover:bg-emerald-500/15 hover:text-emerald-400 btn-press"
+                            >
+                              <Check className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => handleMarkSkipped(item.id)}
+                              title="Pular"
+                              className="hover:bg-red-500/15 hover:text-red-400 btn-press"
+                            >
+                              <X className="size-4" />
+                            </Button>
+                          </div>
+                        )}
+                        {(item.status === 'done' || item.status === 'skipped') && (
+                          <div className="shrink-0">
+                            {item.status === 'done' ? (
+                              <CheckCircle2 className="size-4 text-emerald-400 animate-bounce-check" />
+                            ) : (
+                              <X className="size-4 text-red-400" />
+                            )}
+                          </div>
+                        )}
                       </div>
-
-                      {/* Action buttons */}
-                      {item.status === 'pending' && (
-                        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => handleMarkDone(item.id)}
-                            title="Concluir"
-                            className="hover:bg-emerald-500/15 hover:text-emerald-400"
-                          >
-                            <Check className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => handleMarkSkipped(item.id)}
-                            title="Pular"
-                            className="hover:bg-red-500/15 hover:text-red-400"
-                          >
-                            <X className="size-4" />
-                          </Button>
-                        </div>
-                      )}
-                      {(item.status === 'done' || item.status === 'skipped') && (
-                        <div className="shrink-0">
-                          {item.status === 'done' ? (
-                            <CheckCircle2 className="size-4 text-emerald-400" />
-                          ) : (
-                            <X className="size-4 text-red-400" />
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    </React.Fragment>
                   );
                 })}
+                {/* "Now" line at the end if all items are past */}
+                {isToday(selectedDate) && nowInsertIndex === items.length && (
+                  <div ref={nowLineRef} className="relative my-1 mx-4">
+                    <div className="absolute left-0 right-0 h-0.5 bg-red-500/80" />
+                    <div className="absolute -left-1 -top-1 size-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+                    <span className="absolute left-6 -top-2.5 text-xs font-mono text-red-400">
+                      {currentTimeStr}
+                    </span>
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </CardContent>
@@ -432,7 +531,7 @@ export default function AgendaPage() {
       {hasPlan && (
         <div className="grid grid-cols-3 gap-3">
           {/* Completed */}
-          <Card className="border-0 bg-card/80 backdrop-blur-sm">
+          <Card className="border-0 bg-card/80 backdrop-blur-sm card-hover">
             <CardContent className="text-center">
               <div className="flex items-center justify-center gap-1.5 mb-1">
                 <CheckCircle2 className="size-4 text-emerald-400" />
@@ -445,7 +544,7 @@ export default function AgendaPage() {
           </Card>
 
           {/* Percentage */}
-          <Card className="border-0 bg-card/80 backdrop-blur-sm">
+          <Card className="border-0 bg-card/80 backdrop-blur-sm card-hover">
             <CardContent className="text-center">
               <div className="flex items-center justify-center gap-1.5 mb-1">
                 <Clock className="size-4 text-primary" />
@@ -458,7 +557,7 @@ export default function AgendaPage() {
           </Card>
 
           {/* XP */}
-          <Card className="border-0 bg-card/80 backdrop-blur-sm">
+          <Card className="border-0 bg-card/80 backdrop-blur-sm card-hover">
             <CardContent className="text-center">
               <div className="flex items-center justify-center gap-1.5 mb-1">
                 <Zap className="size-4 text-xp" />
@@ -472,5 +571,6 @@ export default function AgendaPage() {
         </div>
       )}
     </div>
+    </AnimatedPage>
   );
 }

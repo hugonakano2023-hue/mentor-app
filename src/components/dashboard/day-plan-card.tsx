@@ -142,7 +142,7 @@ export function DayPlanCard() {
   }
 
   return (
-    <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card hover:scale-[1.01] transition-transform duration-300">
+    <Card className="border-0 bg-card/80 backdrop-blur-sm glow-card card-hover">
       <CardHeader className="border-b border-border/50">
         <div className="flex items-center gap-2">
           <CalendarDays className="size-4 text-primary" />

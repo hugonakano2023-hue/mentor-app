@@ -9,7 +9,7 @@ const MOCK_MESSAGE = `Bom dia, Hugo. Hoje e quinta — se fechar forte, sexta fi
 
 export function MentorPreview() {
   return (
-    <Card className="relative overflow-hidden border-0 bg-card/80 backdrop-blur-sm hover:scale-[1.01] transition-transform duration-300">
+    <Card className="relative overflow-hidden border-0 bg-card/80 backdrop-blur-sm card-hover">
       {/* Purple glow border effect */}
       <div className="absolute inset-0 rounded-xl ring-1 ring-mentor/20 pointer-events-none" />
       <div className="absolute -top-12 -right-12 size-32 rounded-full bg-mentor/5 blur-3xl pointer-events-none" />
@@ -36,7 +36,7 @@ export function MentorPreview() {
         <Link href="/mentor" className="w-full">
           <Button
             variant="ghost"
-            className="w-full justify-between text-mentor hover:text-mentor hover:bg-mentor/10"
+            className="w-full justify-between text-mentor hover:text-mentor hover:bg-mentor/10 btn-press"
           >
             <span className="flex items-center gap-2">
               <MessageSquare className="size-4" />
